@@ -1,7 +1,7 @@
 # nanosock
 The only minimal and sane socket wrapper for C++ in existence
 
-== Why?
+## Why?
 
 Because all existing network and socket libraries for C++ are absolute disasters:
 
@@ -10,7 +10,7 @@ Because all existing network and socket libraries for C++ are absolute disasters
 * Full of untested functionality and corner cases. (Looking at you, ASIO blocking operations.)
 * Full of insanely broken semantics for working with streams of data.
 
-== What is this?
+## What is this?
 
 This is an absolute minimal header file for setting up client sockets, making requests and sanely reading the results.
 
@@ -21,17 +21,17 @@ Caveats:
 * Blocking, synchronous operations _only_.
 * No timeout support yet. (To be done if there's demand.)
 
-== How to use?
+## How to use?
 
 Just include `nanosock.h`.
 
-See the included `example.com` for usage; but briefly, there are only three classes here:
+See the included `example.cc` for usage; but briefly, there are only three classes here:
 
 * `Socket(host, port)` - socket wrapper for reading and writing; no buffering.
 * `Buffer` - a buffer that can read chunks of data from a socket.
 * `Reader(terminator)` - a wrapper around a `Buffer` that reads data until the terminator string is encountered. Data is passed to a user-defined callback function.
 
-== Public API:
+## Public API:
 
 `nano::Socket sock(const std::string& host, unsigned int port)`
 
