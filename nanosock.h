@@ -67,19 +67,14 @@ struct Socket {
         }
     }
     
-    bool recv(std::string& out) {
+    size_t recv(std::string& out) {
 
         ssize_t i = ::recv(fd, (void*)out.data(), out.size(), 0);
 
         if (i < 0)
-            return false;
+            return 0;
 
-        out.resize(i);
-
-        if (out.empty())
-            return false;
-
-        return true;
+        return i;
     }
 
     void send(const std::string& in) {
@@ -118,15 +113,13 @@ struct Buffer {
 
         if (ok && pointer == end) {
 
-            ok = sock.recv(buff);
-
-            if (!ok) {
-                buff.clear();
-            }
+            size_t n = sock.recv(buff);
 
             begin = buff.begin();
-            end = buff.end();
+            end = begin + n;
             pointer = begin;
+
+            ok = (n > 0);
         }
 
         std::pair<const_iterator, const_iterator> ret(pointer, end);
