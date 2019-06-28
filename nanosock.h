@@ -196,9 +196,7 @@ struct Reader {
                 }
             }
 
-            if (!buff.done()) {
-                data.append(range.first, range.second);
-            }
+            data.append(range.first, range.second);
         }
 
         if (!data.empty()) {
