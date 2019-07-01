@@ -9,7 +9,7 @@ Because all existing network and socket libraries for C++ are absolute disasters
 * Undocumented for sane use-cases.
 * Full of untested functionality and corner cases. (Looking at you, ASIO blocking operations.)
 * Full of insanely broken semantics for working with streams of data.
-* Has read timeout support out of the box.
+* Important first-class features like read timeout support are usually an afterthought.
 
 ## What is this?
 
@@ -27,15 +27,15 @@ Just include `nanosock.h`.
 
 See the included `example.cc` for usage; but briefly, there are only three classes here:
 
-* `Socket(host, port)` - socket wrapper for reading and writing; no buffering.
+* `Socket(host, port, timeout)` - socket wrapper for reading and writing; no buffering.
 * `Buffer` - a buffer that can read chunks of data from a socket.
 * `Reader(terminator)` - a wrapper around a `Buffer` that reads data until the terminator string is encountered. Data is passed to a user-defined callback function.
 
 ## Public API:
 
-`nano::Socket sock(const std::string& host, unsigned int port)`
+`nano::Socket sock(const std::string& host, unsigned int port, unsigned int timeout=0)`
 
-Connects a socket to a host and port.
+Connects a socket to a host and port. The timeout value is in milliseconds (so 3 seconds is 3000), the default value of 0 means 'do not enable a timeout'.
 
 `void Socket::send(const std::string& s)`
 
