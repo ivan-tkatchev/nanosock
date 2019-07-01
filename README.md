@@ -9,6 +9,7 @@ Because all existing network and socket libraries for C++ are absolute disasters
 * Undocumented for sane use-cases.
 * Full of untested functionality and corner cases. (Looking at you, ASIO blocking operations.)
 * Full of insanely broken semantics for working with streams of data.
+* Has read timeout support out of the box.
 
 ## What is this?
 
@@ -19,7 +20,6 @@ Caveats:
 * Tested only for Linux.
 * No server socket support yet, only sockets for making requests and reading data. (To be done if there's demand.)
 * Blocking, synchronous operations _only_.
-* No timeout support yet. (To be done if there's demand.)
 
 ## How to use?
 

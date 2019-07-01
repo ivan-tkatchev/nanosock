@@ -29,7 +29,7 @@ struct Socket {
         throw std::runtime_error(msg);
     }
     
-    Socket(const std::string& host, unsigned int port) {
+    Socket(const std::string& host, unsigned int port, unsigned int rcv_timeout = 0) {
 
         struct sockaddr_in serv_addr;
         struct hostent* server;
@@ -38,6 +38,16 @@ struct Socket {
 
         if (fd < 0) 
             throw std::runtime_error("Could not socket()");
+
+	if (rcv_timeout) {
+
+	    struct timeval tv;
+	    tv.tv_sec = rcv_timeout / 1000;
+	    tv.tv_usec = (rcv_timeout % 1000) * 1000;
+
+	    if (::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval)) < 0) 
+		throw std::runtime_error("Could not setsockopt(SO_RCVTIMEO)");
+	}
 
         server = ::gethostbyname(host.c_str());
 
