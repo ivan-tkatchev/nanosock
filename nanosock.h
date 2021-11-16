@@ -4,6 +4,7 @@
 #include <string>
 #include <utility>
 #include <stdexcept>
+#include <tuple>
 
 #include <string.h>
 #include <unistd.h>
@@ -144,8 +145,7 @@ struct Buffer {
     }
 };
 
-struct Reader {
-
+struct Marker {
     std::string marker;
 
     typedef std::string::const_iterator const_iterator;
@@ -154,53 +154,127 @@ struct Reader {
     const_iterator m_i;
     const_iterator m_e;
 
-    Reader(const std::string& m) :
+    Marker(const std::string& m) :
         marker(m),
         m_b(marker.begin()),
         m_i(m_b),
         m_e(marker.end())
         {}
 
+    void check_and_advance(auto c) {
+        if (*m_i == c) {
+            ++m_i;
+        } else {
+            m_i = m_b;
+            if (*m_i == c) {
+                ++m_i;
+            }
+        }
+    }
+
+    bool matched() {
+        bool ret = (m_i == m_e);
+
+        if (ret) {
+            m_i = m_b;
+        }
+
+        return ret;
+    }
+};
+
+struct Count {
+    size_t n;
+    size_t i;
+
+    Count(size_t n) : n(n), i(0) {}
+
+    void check_and_advance(auto c) {
+        ++i;
+    }
+
+    bool matched() {
+        bool ret = (i >= n);
+
+        if (ret) {
+            i = 0;
+        }
+
+        return ret;
+    }
+};
+
+template <typename... MARKERS>
+struct AnyOf {
+
+    std::tuple<MARKERS...> markers;
+
+    template <typename... ARG>
+    AnyOf(ARG&& ... arg) : markers(std::forward<ARG>(arg)...) {}
+
+    void check_and_advance(auto c) {
+        std::apply([c](auto&& ... marker) {
+            (marker.check_and_advance(c), ...);
+        }, markers);
+    }
+
+    bool matched() {
+        return std::apply([](auto&& ... marker) {
+            return (marker.matched() || ...);
+        }, markers);
+    }
+};
+
+struct EndOfBuffer : public std::exception {
+    const char* what() const noexcept {
+        return "nanosock: reading from a closed socket";
+    }
+};
+
+template <typename MARKER>
+struct Reader_ {
+
+    MARKER marker;
+
+    typedef std::string::const_iterator const_iterator;
+
+    template <typename... ARG>
+    Reader_(ARG&& ... arg) : marker(std::forward<ARG>(arg)...) {}
+
     template <typename BUFF, typename SOCK, typename FUNC>
     bool operator()(BUFF& buff, SOCK& sock, FUNC func) {
 
+        if (buff.done()) {
+            throw EndOfBuffer();
+        }
+
         std::string data;
 
-        if (m_i == m_e) {
+        if (marker.matched()) {
             func(data);
             return true;
         }
 
-        while (!buff.done()) {
+        std::pair<const_iterator, const_iterator> range = buff.read(sock);
 
-            std::pair<const_iterator, const_iterator> range = buff.read(sock);
+        const_iterator r_i = range.first;
+        const_iterator r_e = range.second;
 
-            const_iterator r_i = range.first;
-            const_iterator r_e = range.second;
+        while (r_i != r_e) {
 
-            while (r_i != r_e) {
+            marker.check_and_advance(*r_i);
 
-                if (*m_i == *r_i) {
-                    ++m_i;
-                } else {
-                    m_i = m_b;
-                }
+            ++r_i;
 
-                ++r_i;
-
-                if (m_i == m_e) {
-
-                    data.append(range.first, r_i);
-                    func(data);
-
-                    buff.reset_to(r_i);
-                    m_i = m_b;
-                    return true;
-                }
+            if (marker.matched()) {
+                data.append(range.first, r_i);
+                func(data);
+                buff.reset_to(r_i);
+                return true;
             }
-
-            data.append(range.first, range.second);
         }
+
+        data.append(range.first, range.second);
 
         if (!data.empty()) {
             func(data);
@@ -209,5 +283,7 @@ struct Reader {
         return false;
     }
 };
+
+typedef Reader_<Marker> Reader;
 
 }
