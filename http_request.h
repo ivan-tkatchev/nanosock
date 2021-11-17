@@ -23,10 +23,10 @@ struct BadTransfer : public std::exception {
 struct Request {
     nano::Socket sock;
     nano::Buffer buff;
-    nano::Reader read_space;
-    nano::Reader read_line;
-    nano::Reader_<nano::AnyOf<nano::Marker, nano::Marker>> read_key;
-    nano::Reader_<Count> read_body;
+    nano::Reader<> read_space;
+    nano::Reader<> read_line;
+    nano::Reader<nano::AnyOf<nano::Marker, nano::Marker>> read_key;
+    nano::Reader<Count> read_body;
 
     std::string host;
     std::string version;
@@ -35,7 +35,7 @@ struct Request {
     std::string val;
     size_t content_length = 0;
 
-    Request(const std::string& host, unsigned int port, unsigned int timeout) :
+    Request(const std::string& host, unsigned int port, unsigned int timeout = 0) :
         sock(host, port, timeout),
         read_space(" "),
         read_line("\r\n"),
@@ -53,6 +53,11 @@ struct Request {
         STATE_VAL,
         STATE_BODY
     } state = STATE_SEND;
+
+    nano::Socket& socket() { return sock; }
+    bool drained() const { return buff.drained(); }
+
+    bool valid() const { return (state == STATE_SEND); }
 
     void send(const std::string& method, const std::string& path, const std::string& body) {
 
@@ -81,14 +86,15 @@ struct Request {
         state = STATE_VERSION;
     }
 
-    bool transfer(auto& responder) {
+    bool transfer(auto& responder, bool blocking = true) {
         switch (state) {
 
         case STATE_VERSION: {
             if (read_space(buff, sock, [this](const std::string& part) {
                 version += part;
-            })) {
+            }, blocking)) {
                 responder.version(version);
+                version.clear();
                 state = STATE_CODE;
             }
             break;
@@ -97,15 +103,16 @@ struct Request {
         case STATE_CODE: {
             if (read_space(buff, sock, [this](const std::string& part) {
                 code += part;
-            })) {
+            }, blocking)) {
                 responder.code(code);
+                code.clear();
                 state = STATE_FLAIR;
             }
             break;
         }
 
         case STATE_FLAIR: {
-            if (read_line(buff, sock, [](const std::string&) {})) {
+            if (read_line(buff, sock, [](const std::string&) {}, blocking)) {
                 state = STATE_KEY;
             }
             break;
@@ -114,7 +121,7 @@ struct Request {
         case STATE_KEY: {
             if (read_key(buff, sock, [this](const std::string& part) {
                 key += part;
-            })) {
+            }, blocking)) {
                 if (key == "\r\n") {
                     if (content_length == 0) {
                         state = STATE_SEND;
@@ -132,7 +139,7 @@ struct Request {
         case STATE_VAL: {
             if (read_line(buff, sock, [this](const std::string& part) {
                 val += part;
-            })) {
+            }, blocking)) {
                 for (char& c : key) {
                     c = std::tolower(static_cast<unsigned char>(c));
                 }
@@ -152,7 +159,7 @@ struct Request {
         case STATE_BODY: {
             if (read_body(buff, sock, [&responder](const std::string& body) {
                 responder.body(body);
-            })) {
+            }, blocking)) {
                 state = STATE_SEND;
             }
             break;

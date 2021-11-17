@@ -23,7 +23,25 @@ struct Response {
 int main(int argc, char** argv) {
     try {
         Response res;
-        nano::http::send(argv[1], std::stoul(argv[2]), 1000, "GET", argv[3], argv[4], res);
+        size_t M = 3;
+
+        nano::Mux<nano::http::Request> mux;
+
+        for (int i = 0; i < M; ++i) {
+            mux.add(argv[1], std::stoul(argv[2]), 1000)
+                .send("GET", argv[3], argv[4]);
+        }
+
+        size_t n = 0;
+
+        while (n < 10) {
+            mux.wait([&](nano::http::Request& req, bool blocking) {
+                if (req.transfer(res, blocking)) {
+                    n++;
+                    req.send("GET", argv[3], argv[4]);
+                }
+            }, 1000);
+        }
 
     } catch (std::exception& e) {
         std::cerr << "ERROR: " << e.what() << std::endl;

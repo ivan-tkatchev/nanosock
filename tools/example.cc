@@ -1,7 +1,7 @@
 
 #include <iostream>
 
-#include "nanosock.h"
+#include "../nanosock.h"
 
 
 int main(int argc, char** argv) {

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <string>
+#include <memory>
 #include <utility>
 #include <stdexcept>
 #include <tuple>
@@ -14,6 +15,7 @@
 #include <arpa/inet.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
+#include <poll.h>
 
 namespace nano {
 
@@ -30,7 +32,7 @@ struct Socket {
         throw std::runtime_error(msg);
     }
     
-    Socket(const std::string& host, unsigned int port, unsigned int rcv_timeout = 0) {
+    Socket(const std::string& host, unsigned int port, unsigned int timeout = 0) {
 
         struct sockaddr_in serv_addr;
         struct hostent* server;
@@ -40,14 +42,17 @@ struct Socket {
         if (fd < 0) 
             throw std::runtime_error("Could not socket()");
 
-	if (rcv_timeout) {
+	if (timeout) {
 
 	    struct timeval tv;
-	    tv.tv_sec = rcv_timeout / 1000;
-	    tv.tv_usec = (rcv_timeout % 1000) * 1000;
+	    tv.tv_sec = timeout / 1000;
+	    tv.tv_usec = (timeout % 1000) * 1000;
 
 	    if (::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval)) < 0) 
 		throw std::runtime_error("Could not setsockopt(SO_RCVTIMEO)");
+
+	    if (::setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(struct timeval)) < 0) 
+		throw std::runtime_error("Could not setsockopt(SO_SNDTIMEO)");
 	}
 
         server = ::gethostbyname(host.c_str());
@@ -118,11 +123,16 @@ struct Buffer {
         {}
 
     bool done() const { return !ok; }
+    bool drained() const { return (ok && pointer == end); }
 
     template <typename SOCK>
-    std::pair<const_iterator, const_iterator> read(SOCK& sock) {
+    std::pair<const_iterator, const_iterator> read(SOCK& sock, bool blocking = true) {
 
-        if (ok && pointer == end) {
+        if (drained()) {
+
+            if (!blocking) {
+                return { pointer, end };
+            }
 
             size_t n = sock.recv(buff);
 
@@ -161,7 +171,7 @@ struct Marker {
         m_e(marker.end())
         {}
 
-    void check_and_advance(auto c) {
+    void check_and_advance(char c) {
         if (*m_i == c) {
             ++m_i;
         } else {
@@ -189,7 +199,7 @@ struct Count {
 
     Count(size_t n) : n(n), i(0) {}
 
-    void check_and_advance(auto c) {
+    void check_and_advance(char c) {
         ++i;
     }
 
@@ -212,7 +222,7 @@ struct AnyOf {
     template <typename... ARG>
     AnyOf(ARG&& ... arg) : markers(std::forward<ARG>(arg)...) {}
 
-    void check_and_advance(auto c) {
+    void check_and_advance(char c) {
         std::apply([c](auto&& ... marker) {
             (marker.check_and_advance(c), ...);
         }, markers);
@@ -225,27 +235,34 @@ struct AnyOf {
     }
 };
 
-struct EndOfBuffer : public std::exception {
+struct EndOfSocket : public std::exception {
     const char* what() const noexcept {
         return "nanosock: reading from a closed socket";
     }
 };
 
-template <typename MARKER>
-struct Reader_ {
+struct Timeout : public std::exception {
+    const char* what() const noexcept {
+        return "nanosock: wait timeout";
+    }
+};
+
+
+template <typename MARKER = Marker>
+struct Reader {
 
     MARKER marker;
 
     typedef std::string::const_iterator const_iterator;
 
     template <typename... ARG>
-    Reader_(ARG&& ... arg) : marker(std::forward<ARG>(arg)...) {}
+    Reader(ARG&& ... arg) : marker(std::forward<ARG>(arg)...) {}
 
     template <typename BUFF, typename SOCK, typename FUNC>
-    bool operator()(BUFF& buff, SOCK& sock, FUNC func) {
+    bool operator()(BUFF& buff, SOCK& sock, FUNC func, bool blocking = true) {
 
         if (buff.done()) {
-            throw EndOfBuffer();
+            throw EndOfSocket();
         }
 
         std::string data;
@@ -255,7 +272,7 @@ struct Reader_ {
             return true;
         }
 
-        std::pair<const_iterator, const_iterator> range = buff.read(sock);
+        std::pair<const_iterator, const_iterator> range = buff.read(sock, blocking);
 
         const_iterator r_i = range.first;
         const_iterator r_e = range.second;
@@ -284,6 +301,42 @@ struct Reader_ {
     }
 };
 
-typedef Reader_<Marker> Reader;
+template <typename OBJECT>
+struct Mux {
+
+    std::vector<std::unique_ptr<OBJECT>> sockets;
+    std::vector<pollfd> fds;
+
+    OBJECT& add(const std::string& host, unsigned int port, unsigned int timeout = 0) {
+        sockets.emplace_back(new OBJECT(host, port, timeout));
+        fds.push_back(pollfd{ sockets.back()->socket().fd, POLLIN, 0});
+        return *sockets.back();
+    }
+
+    template <typename FUNC>
+    void wait(FUNC func, unsigned int timeout) {
+
+        int res = ::poll(&fds[0], fds.size(), timeout);
+
+        if (res < 0) {
+            throw std::runtime_error("Could not poll()");
+        }
+
+        if (res == 0) {
+            throw Timeout();
+        }
+
+        for (size_t i = 0; i < sockets.size(); ++i) {
+            if (fds[i].revents & POLLIN) {
+                func(*sockets[i], true);
+            }
+
+            while (!sockets[i]->drained()) {
+                func(*sockets[i], false);
+            }
+        }
+    }
+};
 
 }
+
